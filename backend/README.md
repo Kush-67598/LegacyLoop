@@ -62,6 +62,21 @@ DELETE `/api/cases/CASE_ID` archives a case by setting `archivedAt`; it does not
 
 Claims are created with `evidenceIds` plus exact quotation citations. Whitespace differences are normalized; wording and case are otherwise matched exactly. Claims without evidence are stored as `missing_evidence`; bad quotations are stored as `unsupported`. Valid citations still receive `needs_ai_review` because no AI support verifier is configured.
 
+### AI-assisted claim generation
+
+`POST /api/cases/CASE_ID/claims/generate` uses only evidence the caller can access, includes deterministic analysis context, validates provider output and exact quotations, and stores new claims with `status: pending` and `reviewStatus: pending`. It never approves claims. Repeated requests skip generation-key duplicates. Configure `GEMINI_API_KEY` and optionally `GEMINI_MODEL` in the backend `.env`; the default is `gemini-3.8-flash`, which supports structured output and reasoning. Without a key the endpoint returns `AI_NOT_CONFIGURED` instead of pretending generation succeeded. Claim generation uses Google's official `@google/genai` SDK.
+
+Transient Gemini server and network failures use bounded exponential backoff with jitter. A rate limit is retried only when Gemini provides a retry delay of 10 seconds or less and the error does not indicate exhausted quota. Successful earlier batches are saved immediately and remain intact if a later batch fails.
+
+The repository has no separate payment dummy dataset. Generation tests use a synthetic fixture under `tests/fixtures/claim-generation-evidence.js` for production retry limit 3, its rationale, a staging-only limit 10 experiment, unfinished refund idempotency, unassigned work, and restricted evidence.
+
+Example:
+
+```sh
+curl -X POST http://localhost:4000/api/cases/CASE_ID/claims/generate \
+  -H 'x-demo-user: reviewer-1' -H 'x-demo-role: reviewer'
+```
+
 ```sh
 curl -X POST http://localhost:4000/api/cases/CASE_ID/claims \
   -H 'content-type: application/json' -H 'x-demo-user: reviewer-1' \

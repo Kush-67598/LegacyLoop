@@ -1,4 +1,5 @@
 import * as claimService from '../services/claims/claimService.js';
+import { generateCaseClaims } from '../services/claims/claimGenerationService.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
 
 export const createForCase = asyncHandler(async (req, res) => {
@@ -8,6 +9,10 @@ export const createForCase = asyncHandler(async (req, res) => {
 export const listForCase = asyncHandler(async (req, res) => {
   const claims = await claimService.listClaims(req.params.id, req.user.id, req.user.role);
   res.json({ success: true, message: 'Claims retrieved successfully', data: claims });
+});
+export const generateForCase = asyncHandler(async (req, res) => {
+  const result = await generateCaseClaims(req.params.id, req.user.id, req.user.role);
+  res.json({ success: true, message: 'Claims generated and citation-validated successfully', data: result });
 });
 export const getById = asyncHandler(async (req, res) => {
   const claim = await claimService.getClaim(req.params.id, req.user.id, req.user.role);

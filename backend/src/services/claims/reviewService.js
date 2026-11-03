@@ -9,7 +9,10 @@ const actionMap = { approve: 'approved', reject: 'rejected', edit: 'edited', nee
 export async function reviewClaim(claimId, reviewerId, role, input) {
   const claim = await getClaim(claimId, reviewerId, role);
   if (claim.supersededBy) throw new ApiError(409, 'Claim version has been superseded', 'CLAIM_VERSION_SUPERSEDED');
-  if (input.action === 'approve' && ['unsupported', 'missing_evidence', 'conflicting', 'pending'].includes(claim.status)) {
+  const pendingWithValidCitations = claim.status === 'pending' && claim.verification?.citationCheck?.valid === true;
+  const blockedVerification = ['unsupported', 'missing_evidence', 'conflicting'].includes(claim.status)
+    || (claim.status === 'pending' && !pendingWithValidCitations);
+  if (input.action === 'approve' && blockedVerification) {
     throw new ApiError(409, 'This claim must have valid, non-conflicting evidence before approval', 'CLAIM_NOT_APPROVABLE');
   }
 

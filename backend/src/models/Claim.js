@@ -14,6 +14,7 @@ const claimSchema = new mongoose.Schema({
   accessLevel: { type: String, enum: ['team', 'leads_only', 'restricted'], default: 'team' },
   confidence: { type: Number, min: 0, max: 1, default: null },
   verification: { type: mongoose.Schema.Types.Mixed, default: {} },
+  generationKey: { type: String, default: null },
   conflictIds: [{ type: mongoose.Schema.Types.ObjectId, ref: 'ClaimConflict' }],
   createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
   version: { type: Number, default: 1, min: 1 },
@@ -21,4 +22,5 @@ const claimSchema = new mongoose.Schema({
   supersededBy: { type: mongoose.Schema.Types.ObjectId, ref: 'Claim', default: null }
 }, { timestamps: true, versionKey: false });
 claimSchema.index({ caseId: 1, supersededBy: 1, createdAt: -1 });
+claimSchema.index({ caseId: 1, generationKey: 1 }, { unique: true, partialFilterExpression: { generationKey: { $type: 'string' } } });
 export default mongoose.models.Claim ?? mongoose.model('Claim', claimSchema);

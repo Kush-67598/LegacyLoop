@@ -9,22 +9,28 @@ import { filterByPermission } from '../permissions/permissionService.js';
 import { validateCitations } from '../claims/citationValidator.js';
 
 const handoverSections = [
-  { key: 'project_overview', title: 'Project Overview', claimTypes: ['general'] },
+  { key: 'project_overview', title: 'Project Overview', claimTypes: ['general', 'configuration'] },
   { key: 'module_ownership', title: 'Module Ownership', claimTypes: ['ownership'] },
   { key: 'work_in_progress', title: 'Work in Progress', claimTypes: ['unfinished_work'] },
-  { key: 'technical_decisions', title: 'Technical Decisions', claimTypes: ['technical_decision', 'configuration'] },
+  { key: 'technical_decisions', title: 'Technical Decisions', claimTypes: ['technical_decision'] },
   { key: 'dependencies', title: 'Dependencies', claimTypes: ['dependency'] },
   { key: 'risks', title: 'Risks', claimTypes: ['risk'] },
   { key: 'knowledge_gaps', title: 'Knowledge Gaps', claimTypes: [] },
   { key: 'first_week_priorities', title: 'First-Week Priorities', claimTypes: ['commitment'] },
   { key: 'unanswered_questions', title: 'Unanswered Questions', claimTypes: [] }
 ];
-const handoverEligibleStatuses = new Set(['verified', 'inferred', 'leaver_stated', 'needs_ai_review']);
+// Human review and verification are separate states. A claim can be approved
+// while its verification status remains `pending`; citation validation below
+// is still required before it can enter a handover.
+const handoverEligibleStatuses = new Set(['pending', 'verified', 'inferred', 'leaver_stated', 'needs_ai_review']);
 
 function claimBelongsToSection(claim, section) {
   if (section.key === 'knowledge_gaps') return ['general', 'risk'].includes(claim.claimType) && /knowledge gap|undocumented|not documented|no documentation|unknown|unclear|missing (?:context|documentation|knowledge)/i.test(claim.text);
   if (section.key === 'unanswered_questions') return ['general', 'commitment'].includes(claim.claimType) && (claim.text.trim().endsWith('?') || /^unanswered question:/i.test(claim.text));
-  if (section.key === 'project_overview' && claim.claimType === 'general') return !claimBelongsToSection(claim, { key: 'knowledge_gaps' }) && !claimBelongsToSection(claim, { key: 'unanswered_questions' });
+  if (section.key === 'project_overview' && ['general', 'configuration'].includes(claim.claimType)) {
+    return claim.claimType === 'configuration'
+      || (!claimBelongsToSection(claim, { key: 'knowledge_gaps' }) && !claimBelongsToSection(claim, { key: 'unanswered_questions' }));
+  }
   return section.claimTypes.includes(claim.claimType);
 }
 
@@ -73,17 +79,23 @@ async function loadPermittedCase(caseId, user) {
 
 export async function generateHandover(caseId, user) {
   const handoverCase = await loadPermittedCase(caseId, user);
-  const reviewable = await Claim.find({
-    caseId,
-    reviewStatus: 'approved',
-    status: { $in: [...handoverEligibleStatuses] },
-    supersededBy: null
-  }).sort({ createdAt: 1 }).lean();
+  const allClaims = await Claim.find({ caseId }).sort({ createdAt: 1 }).lean();
+  const statusCounts = allClaims.reduce((counts, claim) => {
+    counts[claim.reviewStatus] = (counts[claim.reviewStatus] ?? 0) + 1;
+    return counts;
+  }, {});
+  const approvedClaims = allClaims.filter((claim) => claim.reviewStatus === 'approved' && !claim.supersededBy);
+  const reviewable = approvedClaims.filter((claim) => handoverEligibleStatuses.has(claim.status));
   const claimAccess = filterByPermission(reviewable, user.role);
   const allEvidenceIds = [...new Set(claimAccess.flatMap((claim) => claim.evidenceIds.map(String)))];
   const loadedEvidence = allEvidenceIds.length ? await Evidence.find({ caseId, _id: { $in: allEvidenceIds } }).lean() : [];
   const permittedEvidence = filterByPermission(loadedEvidence, user.role);
   const evidenceById = new Map(permittedEvidence.map((record) => [String(record._id), record]));
+  const allEvidenceById = new Map(loadedEvidence.map((record) => [String(record._id), record]));
+  const permissionExcludedIds = new Set(reviewable.filter((claim) => !claimAccess.includes(claim)).map((claim) => String(claim._id)));
+  for (const claim of claimAccess) {
+    if (claim.evidenceIds.some((id) => allEvidenceById.has(String(id)) && !evidenceById.has(String(id)))) permissionExcludedIds.add(String(claim._id));
+  }
   const validClaims = claimAccess.filter((claim) => {
     const claimEvidence = claim.evidenceIds.map((id) => evidenceById.get(String(id)));
     if (claimEvidence.some((record) => !record)) return false;
@@ -91,15 +103,32 @@ export async function generateHandover(caseId, user) {
   });
   const validEvidenceIds = [...new Set(validClaims.flatMap((claim) => claim.evidenceIds.map(String)))];
   const validEvidenceById = new Map(validEvidenceIds.map((id) => [id, evidenceById.get(id)]));
-  const sections = makeSections(validClaims, validEvidenceById, handoverCase);
-  const claimIds = validClaims.map((claim) => claim._id);
+  const reportClaims = validClaims.filter((claim) => handoverSections.some((section) => claimBelongsToSection(claim, section)));
+  const claimsExcludedByValidation = claimAccess.length - validClaims.length;
+  const claimsExcludedByCategory = validClaims.length - reportClaims.length;
+  const sections = makeSections(reportClaims, validEvidenceById, handoverCase);
+  const claimIds = reportClaims.map((claim) => claim._id);
+  const includedCount = claimIds.length;
+  console.log('[HANDOVER GENERATION]');
+  console.log(`Total claims: ${allClaims.length}`);
+  console.log(`Approved claims: ${statusCounts.approved ?? 0}`);
+  console.log(`Rejected claims: ${statusCounts.rejected ?? 0}`);
+  console.log(`Pending claims: ${statusCounts.pending ?? 0}`);
+  console.log(`Approved claims selected: ${reviewable.length}`);
+  console.log(`Claims excluded by permissions: ${permissionExcludedIds.size}`);
+  console.log(`Claims excluded by evidence validation: ${claimsExcludedByValidation}`);
+  console.log(`Claims excluded by category: ${claimsExcludedByCategory}`);
+  console.log(`Claims included in report: ${includedCount}`);
   const contentHash = createHash('sha256').update(JSON.stringify({
     case: { title: handoverCase.title, projectName: handoverCase.projectName, departingMember: handoverCase.departingMember, successor: handoverCase.successor },
     claimIds: claimIds.map(String), sections
   })).digest('hex');
   const latest = await Handover.findOne({ caseId, generatedFor: user.id, role: user.role }).sort({ version: -1 });
-  if (latest?.contentHash === contentHash) return latest.toObject();
-  return Handover.create({
+  if (latest?.contentHash === contentHash) {
+    console.log(`[HANDOVER GENERATION] Published version v${latest.version} contains ${latest.claimIds.length} claims (current snapshot).`);
+    return latest.toObject();
+  }
+  const published = await Handover.create({
     caseId,
     generatedFor: user.id,
     role: user.role,
@@ -108,7 +137,55 @@ export async function generateHandover(caseId, user) {
     contentHash,
     version: (latest?.version ?? 0) + 1,
     status: 'published'
-  }).then((handover) => handover.toObject());
+  });
+  console.log(`[HANDOVER GENERATION] Published version v${published.version} contains ${published.claimIds.length} claims.`);
+  return published.toObject();
+}
+
+export async function hasCurrentPublishedSuccessorHandover(caseId, handoverCase) {
+  const successorId = createHash('sha256')
+    .update(String(handoverCase.successor).trim().toLowerCase())
+    .digest('hex')
+    .slice(0, 24);
+  const published = await Handover.findOne({
+    caseId,
+    generatedFor: successorId,
+    role: 'successor',
+    status: { $in: ['published', 'acknowledged', 'needs_revision'] }
+  }).sort({ version: -1 }).lean();
+  if (!published) return false;
+
+  const approved = await Claim.find({
+    caseId,
+    reviewStatus: 'approved',
+    status: { $in: [...handoverEligibleStatuses] },
+    supersededBy: null
+  }).lean();
+  const accessibleClaims = filterByPermission(approved, 'successor');
+  const evidenceIds = [...new Set(accessibleClaims.flatMap((claim) => (claim.evidenceIds ?? []).map(String)))];
+  const loadedEvidence = evidenceIds.length
+    ? await Evidence.find({ caseId, _id: { $in: evidenceIds } }).lean()
+    : [];
+  const evidenceById = new Map(filterByPermission(loadedEvidence, 'successor').map((record) => [String(record._id), record]));
+  const currentClaimIds = accessibleClaims.filter((claim) => {
+    const evidence = (claim.evidenceIds ?? []).map((id) => evidenceById.get(String(id)));
+    return evidence.length > 0
+      && evidence.every(Boolean)
+      && validateCitations(claim, evidence).valid
+      && handoverSections.some((section) => claimBelongsToSection(claim, section));
+  }).map((claim) => String(claim._id)).sort();
+  const publishedClaimIds = (published.claimIds ?? []).map(String).sort();
+  if (!currentClaimIds.length || currentClaimIds.length !== publishedClaimIds.length
+    || currentClaimIds.some((id, index) => id !== publishedClaimIds[index])) return false;
+
+  const overview = published.sections?.find((section) => section.key === 'project_overview');
+  const context = overview?.context;
+  return Boolean(context
+    && context.title === handoverCase.title
+    && context.projectName === handoverCase.projectName
+    && context.departingMember === handoverCase.departingMember
+    && context.successor === handoverCase.successor
+    && context.description === handoverCase.description);
 }
 
 export async function acknowledgeHandover(id, user, input) {

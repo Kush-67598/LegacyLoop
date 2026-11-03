@@ -6,5 +6,6 @@ import * as controller from '../controllers/caseController.js';
 const router = Router();
 router.use(requireDemoUser);
 router.route('/').post(validateRequest(createCaseSchema), controller.createCase).get(controller.listCases);
+router.get('/:id/progress', controller.getProgress);
 router.route('/:id').get(controller.getCase).patch(validateRequest(updateCaseSchema), controller.updateCase).delete(controller.archiveCase);
 export default router;

@@ -22,13 +22,15 @@ function extractSignature(claim) {
   const file = before.match(/(?:[\w.-]+\/)+[\w.-]+\.[a-z\d]+/i)?.[0]?.toLowerCase();
   const subjectWords = before.toLowerCase().match(/[a-z][a-z\d-]*/g)?.filter((word) => !ignoredSubject.has(word)) ?? [];
   const subject = file ?? subjectWords[0] ?? 'global';
+  const environmentMatch = text.match(/\b(production|prod|staging|stage|development|dev|test|qa)\b/i)?.[1]?.toLowerCase();
+  const environment = ({ prod: 'production', stage: 'staging', dev: 'development' })[environmentMatch] ?? environmentMatch ?? null;
   const after = text.slice(setting.match.index + setting.match[0].length);
   const numberMatch = after.match(/(?:\b(?:is|are|to|at|of|set\s+to|limited\s+to|maximum\s+of)\s*)?(\d+(?:\.\d+)?)(?:\s*(milliseconds?|ms|seconds?|secs?|minutes?|mins?|hours?|attempts?|percent|%))?/i);
   const boolMatch = after.match(/\b(true|false|enabled|disabled|on|off)\b/i);
   const quotedMatch = after.match(/["']([^"']{1,80})["']/);
   let value = numberMatch ? `${Number(numberMatch[1])}${(numberMatch[2] ?? '').toLowerCase().replace(/attempts?/, '')}` : boolMatch?.[1]?.toLowerCase() ?? quotedMatch?.[1]?.trim().toLowerCase();
   if (!value) return null;
-  return { entityKey: `${subject}|${setting.key}`, value };
+  return { entityKey: `${subject}|${setting.key}${environment ? `|environment:${environment}` : ''}`, value, environment };
 }
 
 export function findPotentialConflicts(claim, existingClaims) {
@@ -37,7 +39,7 @@ export function findPotentialConflicts(claim, existingClaims) {
   return existingClaims.flatMap((existing) => {
     if (String(existing._id) === String(claim._id)) return [];
     const other = extractSignature(existing);
-    if (!other || signature.entityKey !== other.entityKey || signature.value === other.value) return [];
+    if (!other || signature.entityKey !== other.entityKey || signature.environment !== other.environment || signature.value === other.value) return [];
     return [{ claim: existing, entityKey: signature.entityKey, newValue: signature.value, existingValue: other.value }];
   });
 }

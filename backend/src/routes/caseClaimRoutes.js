@@ -5,5 +5,6 @@ import { createClaimSchema } from '../validators/claimValidator.js';
 import * as controller from '../controllers/claimController.js';
 const router = Router({ mergeParams: true });
 router.use(requireDemoUser);
+router.post('/generate', controller.generateForCase);
 router.route('/').post(validateRequest(createClaimSchema), controller.createForCase).get(controller.listForCase);
 export default router;

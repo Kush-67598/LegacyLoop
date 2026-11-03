@@ -40,6 +40,7 @@ before(async () => {
   await addEvidence('leads', 'Timeout override is 45 seconds.', 'leads_only');
   await addEvidence('restricted', 'Credential rotation is due on Friday.', 'restricted');
   await addEvidence('pending', 'A pending claim must stay out.', 'team');
+  await addEvidence('rejected', evidence.team.text, 'team');
   await addEvidence('unsupported', 'No exact quotation should pass.', 'team');
   await addEvidence('conflicting', 'An unresolved conflict stays out.', 'team');
   await addEvidence('gap', 'No documentation explains the retry rollback behavior.', 'team');
@@ -48,6 +49,7 @@ before(async () => {
   await addClaim('leads', evidence.leads.text, 'leads_only');
   await addClaim('restricted', evidence.restricted.text, 'restricted');
   await addClaim('pending', evidence.pending.text, 'team', 'pending');
+  await addClaim('rejected', evidence.team.text, 'team', 'rejected');
   await addClaim('unsupported', 'Unsupported statement.', 'team', 'approved', 'unsupported', 'missing wording');
   await addClaim('conflicting', evidence.conflicting.text, 'team', 'approved', 'conflicting');
   await addClaim('gap', evidence.gap.text, 'team', 'approved', 'needs_ai_review', evidence.gap.text, 'general');
@@ -75,6 +77,8 @@ test('handover includes only approved claims and evidence permitted to each view
   assert.equal(technical.items[0].claimId, String(claims.team._id));
   assert.equal(technical.items[0].citations[0].quote, evidence.team.text);
   assert.equal(successorView.body.data.claimIds.length, 3);
+  assert.equal(successorView.body.data.claimIds.includes(String(claims.pending._id)), false);
+  assert.equal(successorView.body.data.claimIds.includes(String(claims.rejected._id)), false);
   assert.equal(successorView.body.data.sections.find((section) => section.key === 'knowledge_gaps').items.length, 1);
   assert.equal(successorView.body.data.sections.find((section) => section.key === 'unanswered_questions').items.length, 1);
   assert.equal(successorView.body.data.sections.find((section) => section.key === 'project_overview').context.source, 'case_record');
@@ -112,4 +116,33 @@ test('handover acknowledgement is successor-only and mismatched identities canno
   assert.equal(stranger.status, 404);
   const team = await request(app).post('/api/handover/000000000000000000000001/acknowledge').set('x-demo-user', owner);
   assert.equal(team.status, 403);
+});
+
+test('approved claims with pending verification are published after re-generation while older versions remain intact', async () => {
+  const initial = await request(app).get(`/api/cases/${handoverCase.id}/handover`).set('x-demo-user', successor).set('x-demo-role', 'successor');
+  assert.equal(initial.status, 200);
+  const previousVersion = initial.body.data.version;
+
+  await addEvidence('approved_pending_verification', 'Runtime configuration explicitly sets the worker timeout to thirty seconds.', 'team');
+  await addClaim('approved_pending_verification', evidence.approved_pending_verification.text, 'team', 'pending', 'pending', evidence.approved_pending_verification.text, 'configuration');
+  await Claim.updateOne({ _id: claims.approved_pending_verification._id }, { $set: { 'verification.citationCheck.valid': true } });
+
+  const approval = await request(app).post(`/api/claims/${claims.approved_pending_verification._id}/review`)
+    .set('x-demo-user', owner).set('x-demo-role', 'reviewer').send({ action: 'approve', comment: 'Citation checked.' });
+  assert.equal(approval.status, 201, approval.body.message);
+  assert.equal(approval.body.data.claim.reviewStatus, 'approved');
+  assert.equal(approval.body.data.claim.status, 'pending');
+
+  const refreshed = await request(app).get(`/api/cases/${handoverCase.id}/handover`).set('x-demo-user', successor).set('x-demo-role', 'successor');
+  assert.equal(refreshed.status, 200);
+  assert.equal(refreshed.body.data.version, previousVersion + 1);
+  assert.ok(refreshed.body.data.claimIds.includes(String(claims.approved_pending_verification._id)));
+  const overview = refreshed.body.data.sections.find((section) => section.key === 'project_overview');
+  assert.ok(overview.items.some((item) => item.claimId === String(claims.approved_pending_verification._id)));
+  const technicalDecisions = refreshed.body.data.sections.find((section) => section.key === 'technical_decisions');
+  assert.equal(technicalDecisions.items.some((item) => item.claimId === String(claims.approved_pending_verification._id)), false);
+
+  const historical = await Handover.findOne({ caseId: handoverCase._id, generatedFor: idFor(successor), role: 'successor', version: previousVersion }).lean();
+  assert.ok(historical);
+  assert.equal(historical.claimIds.includes(claims.approved_pending_verification._id), false);
 });
