@@ -27,14 +27,13 @@ export async function apiRequest(path, options = {}) {
     headers.set("Content-Type", "application/json");
   }
 
-  // These identity headers exist only for the backend's local development stub.
-  // Defaults keep a fresh local checkout usable even before .env.local is created.
-  if (process.env.NODE_ENV !== "production") {
-    const demoUser = process.env.NEXT_PUBLIC_DEMO_USER?.trim() || "demo-reviewer";
-    const demoRole = process.env.NEXT_PUBLIC_DEMO_ROLE?.trim() || "reviewer";
-    headers.set("x-demo-user", demoUser);
-    headers.set("x-demo-role", demoRole);
-  }
+  // Send configured demo identity values in every build. Only local development
+  // receives defaults, so production never gets a hardcoded demo identity.
+  const isLocalDevelopment = process.env.NODE_ENV !== "production";
+  const demoUser = process.env.NEXT_PUBLIC_DEMO_USER?.trim();
+  const demoRole = process.env.NEXT_PUBLIC_DEMO_ROLE?.trim();
+  if (demoUser || isLocalDevelopment) headers.set("x-demo-user", demoUser || "demo-reviewer");
+  if (demoRole || isLocalDevelopment) headers.set("x-demo-role", demoRole || "reviewer");
 
   const method = options.method || "GET";
   const retryable = canRetry(method);

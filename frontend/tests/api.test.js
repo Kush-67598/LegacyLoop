@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { apiRequest } from "@/services/api";
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => { vi.unstubAllGlobals(); vi.unstubAllEnvs(); });
 
 describe("apiRequest", () => {
   it.each(["GET", "POST", "PATCH", "DELETE"])("sends the default demo reviewer identity on %s requests", async (method) => {
@@ -13,6 +13,34 @@ describe("apiRequest", () => {
     const headers = fetchMock.mock.calls[0][1].headers;
     expect(headers.get("x-demo-user")).toBe("demo-reviewer");
     expect(headers.get("x-demo-role")).toBe("reviewer");
+  });
+
+  it("sends explicitly configured demo identity headers in production builds", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("NEXT_PUBLIC_DEMO_USER", "deployed-reviewer");
+    vi.stubEnv("NEXT_PUBLIC_DEMO_ROLE", "reviewer");
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ success: true, data: {} }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await apiRequest("/cases");
+
+    const headers = fetchMock.mock.calls[0][1].headers;
+    expect(headers.get("x-demo-user")).toBe("deployed-reviewer");
+    expect(headers.get("x-demo-role")).toBe("reviewer");
+  });
+
+  it("does not add fallback demo identities in production when they are not configured", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("NEXT_PUBLIC_DEMO_USER", "");
+    vi.stubEnv("NEXT_PUBLIC_DEMO_ROLE", "");
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ success: true, data: {} }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await apiRequest("/cases");
+
+    const headers = fetchMock.mock.calls[0][1].headers;
+    expect(headers.has("x-demo-user")).toBe(false);
+    expect(headers.has("x-demo-role")).toBe(false);
   });
 
   it("unwraps the standard success envelope", async () => {
