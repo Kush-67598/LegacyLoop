@@ -1,0 +1,9 @@
+import { Router } from 'express';
+import { requireDemoUser } from '../middleware/authMiddleware.js';
+import { validateRequest } from '../middleware/validateRequest.js';
+import { createClaimSchema } from '../validators/claimValidator.js';
+import * as controller from '../controllers/claimController.js';
+const router = Router({ mergeParams: true });
+router.use(requireDemoUser);
+router.route('/').post(validateRequest(createClaimSchema), controller.createForCase).get(controller.listForCase);
+export default router;

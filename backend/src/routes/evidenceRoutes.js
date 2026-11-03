@@ -1,0 +1,11 @@
+import { Router } from 'express';
+import { requireDemoUser } from '../middleware/authMiddleware.js';
+import { asyncHandler } from '../utils/asyncHandler.js';
+import { getCase } from '../services/caseService.js';
+import * as controller from '../controllers/evidenceController.js';
+const caseEvidence = Router({ mergeParams: true });
+caseEvidence.use(requireDemoUser, asyncHandler(async (req, res, next) => { await getCase(req.params.id, req.user.id, req.user.role); next(); }));
+caseEvidence.get('/', controller.listForCase);
+const evidence = Router();
+evidence.get('/:id', requireDemoUser, controller.getById);
+export { caseEvidence, evidence };

@@ -1,0 +1,10 @@
+import { Router } from 'express';
+import { requireDemoUser } from '../middleware/authMiddleware.js';
+import { receiveUploads } from '../middleware/uploadMiddleware.js';
+import { uploadRateLimit } from '../middleware/rateLimitMiddleware.js';
+import { asyncHandler } from '../utils/asyncHandler.js';
+import { getCase } from '../services/caseService.js';
+import { upload } from '../controllers/uploadController.js';
+const router = Router();
+router.post('/:id/upload', requireDemoUser, uploadRateLimit, asyncHandler(async (req, res, next) => { await getCase(req.params.id, req.user.id, req.user.role); next(); }), receiveUploads, upload);
+export default router;

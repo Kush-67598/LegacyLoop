@@ -1,0 +1,10 @@
+import { Router } from 'express';
+import { requireDemoUser } from '../middleware/authMiddleware.js';
+import { validateRequest } from '../middleware/validateRequest.js';
+import { createCaseSchema, updateCaseSchema } from '../validators/caseValidator.js';
+import * as controller from '../controllers/caseController.js';
+const router = Router();
+router.use(requireDemoUser);
+router.route('/').post(validateRequest(createCaseSchema), controller.createCase).get(controller.listCases);
+router.route('/:id').get(controller.getCase).patch(validateRequest(updateCaseSchema), controller.updateCase).delete(controller.archiveCase);
+export default router;

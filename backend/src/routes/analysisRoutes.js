@@ -1,0 +1,15 @@
+import { Router } from 'express';
+import { requireDemoUser } from '../middleware/authMiddleware.js';
+import { getCase } from '../services/caseService.js';
+import { asyncHandler } from '../utils/asyncHandler.js';
+import * as controller from '../controllers/analysisController.js';
+import { fileHistory } from '../controllers/gitController.js';
+const router = Router({ mergeParams: true });
+router.use(requireDemoUser, asyncHandler(async (req, res, next) => { req.case = await getCase(req.params.id, req.user.id, req.user.role); next(); }));
+router.post('/analyze', controller.analyze);
+router.get('/git/history', fileHistory);
+router.get('/ownership', controller.ownership);
+router.get('/open-work', controller.openWork);
+router.get('/timeline', controller.timeline);
+router.get('/contributors', controller.contributors);
+export default router;

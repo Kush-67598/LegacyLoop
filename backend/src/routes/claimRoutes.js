@@ -1,0 +1,14 @@
+import { Router } from 'express';
+import { requireDemoUser } from '../middleware/authMiddleware.js';
+import { validateRequest } from '../middleware/validateRequest.js';
+import { createClaimSchema, updateClaimSchema } from '../validators/claimValidator.js';
+import * as controller from '../controllers/claimController.js';
+import { requireRole } from '../middleware/authMiddleware.js';
+import { reviewSchema } from '../validators/reviewValidator.js';
+import { review } from '../controllers/reviewController.js';
+const router = Router();
+router.use(requireDemoUser);
+router.post('/:id/review', requireRole('reviewer', 'admin'), validateRequest(reviewSchema), review);
+router.get('/:id/conflicts', controller.getConflicts);
+router.route('/:id').get(controller.getById).patch(validateRequest(updateClaimSchema), controller.updateById);
+export default router;
