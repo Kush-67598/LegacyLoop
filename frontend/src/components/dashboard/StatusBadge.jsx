@@ -19,5 +19,5 @@ const statusLabels = {
 
 export default function StatusBadge({ status }) {
   const normalizedStatus = statusStyles[status] ? status : "created";
-  return <span className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border px-2.5 py-1 text-[10px] font-medium ${statusStyles[normalizedStatus]}`}><span className="h-1.5 w-1.5 rounded-full bg-current opacity-80" />{statusLabels[normalizedStatus]}</span>;
+  return <span className={`inline-flex items-center gap-2 whitespace-nowrap rounded-full border px-2.5 py-1 text-[11px] font-medium ${statusStyles[normalizedStatus]}`}><span className="h-1.5 w-1.5 rounded-full bg-current opacity-90 shadow-[0_0_0_3px_rgba(255,255,255,0.035)]" />{statusLabels[normalizedStatus]}</span>;
 }

@@ -17,7 +17,7 @@ cp .env.local.example .env.local
 npm run dev
 ```
 
-Open <http://localhost:3000>. The API URL defaults to `http://localhost:4000/api`, matching the local backend configuration. Start the backend separately. The optional demo identity headers are intended only for local development; production authentication should use the backend's real auth flow.
+Open <http://localhost:3000>. `npm run dev` checks the API health endpoint and starts the local backend if needed; Next.js starts only after the backend reports healthy. MongoDB must be running. Use `npm run dev:next` only when you want to start the frontend without that startup coordination. During local development, the centralized API client sends `x-demo-user: demo-reviewer` and `x-demo-role: reviewer` by default; `NEXT_PUBLIC_DEMO_USER` and `NEXT_PUBLIC_DEMO_ROLE` can override them. These demo headers are disabled in production, where the backend's real authentication flow is required.
 
 ## Environment
 
@@ -43,4 +43,4 @@ npm run start
 
 The responsive application shell, design tokens, centralized API client, dashboard, case directory, multi-step case creation, case overview/editing, file upload, evidence explorer, ownership analysis, deterministic project analysis, claims, human review, generated handovers and the successor acknowledgement view are implemented.
 
-The current backend does not provide an AI claim extraction service, so analysis reports do not create claims. Claims can be added with evidence citations, then the backend performs its deterministic citation checks. The upload endpoint does not accept a global access-level field; JSON and CSV parsers support per-record `accessLevel`, and other formats use their backend defaults. Handover generation publishes the resulting version directly; no separate publish endpoint exists. The successor view requires `caseId` in its query string and must be opened with a demo identity whose role is `successor` and whose name matches the case's successor.
+Deterministic analysis remains separate from AI-assisted claim generation. Claim generation requires backend AI configuration; when configured, the backend validates evidence IDs and exact citations and saves claims pending human review. The upload endpoint does not accept a global access-level field; JSON and CSV parsers support per-record `accessLevel`, and other formats use their backend defaults. Handover generation publishes the resulting version directly; no separate publish endpoint exists. The successor view requires `caseId` in its query string and must be opened with a demo identity whose role is `successor` and whose name matches the case's successor.

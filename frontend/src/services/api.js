@@ -1,4 +1,14 @@
 const API_BASE_URL = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000/api").replace(/\/$/, "");
+const MAX_CONNECTION_RETRIES = 2;
+const RETRY_DELAYS_MS = [250, 500];
+
+function canRetry(method) {
+  return ["GET", "HEAD", "OPTIONS"].includes(method.toUpperCase());
+}
+
+function wait(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 export class ApiError extends Error {
   constructor(message, { status, code } = {}) {
@@ -18,22 +28,32 @@ export async function apiRequest(path, options = {}) {
   }
 
   // These identity headers exist only for the backend's local development stub.
+  // Defaults keep a fresh local checkout usable even before .env.local is created.
   if (process.env.NODE_ENV !== "production") {
-    const demoUser = process.env.NEXT_PUBLIC_DEMO_USER;
-    if (demoUser) headers.set("x-demo-user", demoUser);
-    const demoRole = process.env.NEXT_PUBLIC_DEMO_ROLE;
-    if (demoRole) headers.set("x-demo-role", demoRole);
+    const demoUser = process.env.NEXT_PUBLIC_DEMO_USER?.trim() || "demo-reviewer";
+    const demoRole = process.env.NEXT_PUBLIC_DEMO_ROLE?.trim() || "reviewer";
+    headers.set("x-demo-user", demoUser);
+    headers.set("x-demo-role", demoRole);
   }
 
+  const method = options.method || "GET";
+  const retryable = canRetry(method);
   let response;
-  try {
-    response = await fetch(`${API_BASE_URL}${path.startsWith("/") ? path : `/${path}`}`, {
-      ...options,
-      headers,
-      cache: "no-store"
-    });
-  } catch {
-    throw new ApiError(`Unable to connect to the LegacyLoop API at ${API_BASE_URL}.`);
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      response = await fetch(`${API_BASE_URL}${path.startsWith("/") ? path : `/${path}`}`, {
+        ...options,
+        headers,
+        cache: "no-store"
+      });
+      break;
+    } catch (error) {
+      if (options.signal?.aborted) throw error;
+      if (!retryable || attempt >= MAX_CONNECTION_RETRIES) {
+        throw new ApiError(`Unable to connect to the LegacyLoop API at ${API_BASE_URL}.`);
+      }
+      await wait(RETRY_DELAYS_MS[attempt]);
+    }
   }
 
   let payload;
